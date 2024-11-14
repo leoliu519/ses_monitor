@@ -1,0 +1,25 @@
+{
+  "name": "deledao",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@aws-sdk/client-cloudwatch": "^3.687.0",
+    "@aws-sdk/client-dynamodb": "^3.682.0",
+    "@aws-sdk/client-ses": "^3.687.0",
+    "@aws-sdk/client-sesv2": "^3.687.0",
+    "@aws-sdk/lib-dynamodb": "^3.685.0",
+    "axios": "^1.7.7",
+    "body-parser": "^1.20.3",
+    "express": "^4.21.1",
+    "luxon": "^3.5.0",
+    "moment-timezone": "^0.5.46"
+  }
+}
