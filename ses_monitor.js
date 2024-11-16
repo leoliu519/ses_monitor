@@ -230,7 +230,7 @@ class SESMonitor {
             if (bounceRateData.length > 0) {
                 await this.processAndNotify(bounceRateData[0]);
             } else {
-                console.log('No bounce rate data available');
+                throw new Error('No bounce rate data available in the specified time rang.....');
             }
         } catch (error) {
             await this.handleError(error);
