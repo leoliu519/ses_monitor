@@ -182,7 +182,7 @@ class NotificationService {
             [StatusTypes.ALERT]: '在異常範圍5%以上，狀態為異常',
             [StatusTypes.DANGER]: '在危險範圍超過10%以上，狀態為危險'
         };
-        return descriptions[status] || '狀態未知';
+        return descriptions[status];
     }
 }
 
