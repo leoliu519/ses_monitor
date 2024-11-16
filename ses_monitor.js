@@ -2,96 +2,121 @@ import { CloudWatchClient, GetMetricDataCommand } from '@aws-sdk/client-cloudwat
 import moment from 'moment-timezone';
 import axios from 'axios';
 
-// 設定門檻條件
-const thresholds = { caution: 3, alert: 5 };
+// ======================
+// Configuration
+// ======================
+const CONFIG = {
+    aws: {
+        region: 'us-west-2',
+        cloudwatch: {
+            namespace: 'AWS/SES',
+            metricName: 'Reputation.BounceRate',
+            period: 1800, // 30 minutes
+        }
+    },
+    thresholds: {
+        bounceRate: {
+            normal: 0.03,    // 3%
+            caution: 0.05,   // 5%
+            danger: 0.10     // 10%
+        }
+    },
+    monitoring: {
+        defaultLookbackMinutes: 120,
+    },
+    webhook: {
+        azure: 'https://prod-142.westus.logic.azure.com:443/workflows/5db304db595c4e03bf5346c307b3a6c3/triggers/manual/paths/invoke?api-version=2016-06-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=EK1v1dHLzx9AEcjRcJJptjAEqkTEdt0rVYto65OHhFY'
+    }
+};
 
-// Azure Logic App webhook URL
-const AZURE_WEBHOOK_URL = 'https://prod-142.westus.logic.azure.com:443/workflows/5db304db595c4e03bf5346c307b3a6c3/triggers/manual/paths/invoke?api-version=2016-06-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=EK1v1dHLzx9AEcjRcJJptjAEqkTEdt0rVYto65OHhFY';
+// ======================
+// Types
+// ======================
+const StatusTypes = {
+    NORMAL: 'NORMAL',
+    CAUTION: 'CAUTION',
+    ALERT: 'ALERT',
+    DANGER: 'DANGER'
+};
 
-async function getBounceRateData({
-                                     region = 'us-west-2',
-                                     startTime = new Date(Date.now() - 120 * 60 * 1000), // 60分鐘前
-                                     // startTime = new Date(Date.now() - 120 * 60 * 1000), // 120分鐘前
-                                     endTime = new Date(),
-                                     // startTime = new Date('2024-11-14T03:00:00Z'), // UTC 時間
-                                     // endTime = new Date('2024-11-14T03:59:59Z') // UTC 時間的 1 小時內
+// ======================
+// CloudWatch Service
+// ======================
+class CloudWatchService {
+    constructor(region = CONFIG.aws.region) {
+        this.client = new CloudWatchClient({ region });
+    }
 
-                                 }) {
-    const cloudWatchClient = new CloudWatchClient({ region });
-
-    const params = {
-        MetricDataQueries: [
-            {
+    getMetricDataParams(startTime, endTime) {
+        return {
+            MetricDataQueries: [{
                 Id: 'bounceRate',
                 MetricStat: {
                     Metric: {
-                        Namespace: 'AWS/SES',
-                        MetricName: 'Reputation.BounceRate',
+                        Namespace: CONFIG.aws.cloudwatch.namespace,
+                        MetricName: CONFIG.aws.cloudwatch.metricName,
                     },
-                    // Period: 3600, // 60 minutes
-                    Period: 1800, // 30 minutes
+                    Period: CONFIG.aws.cloudwatch.period,
                     Stat: 'Average',
                 },
                 ReturnData: true,
-            },
-        ],
-        StartTime: startTime,
-        EndTime: endTime,
-    };
+            }],
+            StartTime: startTime,
+            EndTime: endTime,
+        };
+    }
 
-    try {
-        const { MetricDataResults } = await cloudWatchClient.send(new GetMetricDataCommand(params));
-        const bounceRateData = MetricDataResults.flatMap((item) =>
+    async getBounceRateData(startTime, endTime) {
+        try {
+            const params = this.getMetricDataParams(startTime, endTime);
+            const { MetricDataResults } = await this.client.send(
+                new GetMetricDataCommand(params)
+            );
+
+            return this.formatMetricData(MetricDataResults);
+        } catch (error) {
+            throw new Error(`CloudWatch data fetch failed: ${error.message}`);
+        }
+    }
+
+    formatMetricData(metricResults) {
+        return metricResults.flatMap(item =>
             item.Timestamps.map((timestamp, index) => ({
                 time: moment(timestamp).tz('Asia/Taipei').format('YYYY-MM-DD HH:mm:ss'),
                 bounceRate: item.Values[index],
             }))
         );
-        console.log(bounceRateData);
-        return bounceRateData;
-    } catch (error) {
-        console.error('Error fetching bounce rate data:', error);
-        throw error;
     }
 }
 
-function getStatus(bounceRate) {
-    if (bounceRate < thresholds.caution) {
-        return 'NORMAL';
-    } else if (bounceRate >= thresholds.caution && bounceRate < thresholds.alert) {
-        return 'CAUTION';
-    } else if (bounceRate >= thresholds.alert && bounceRate < 10) {
-        return 'ALERT';
-    } else {
-        return 'DANGER';
+// ======================
+// Notification Service
+// ======================
+class NotificationService {
+    constructor(webhookUrl = CONFIG.webhook.azure) {
+        this.webhookUrl = webhookUrl;
     }
-}
 
-function getStatusDescription(status) {
-    switch (status) {
-        case 'NORMAL':
-            return '在允許範圍3%以內，狀態為正常';
-        case 'CAUTION':
-            return '在注意範圍3%~5%，狀態為注意';
-        case 'ALERT':
-            return '在異常範圍5%以上，狀態為異常';
-        case 'DANGER':
-            return '在危險範圍超過10%以上，狀態為危險';
-        default:
-            return '狀態未知';
+    async sendNotification(message) {
+        try {
+            const response = await axios.post(this.webhookUrl, message);
+            if (response.status === 202) {
+                console.log('Successfully posted to Team Workflow App');
+            }
+            return response;
+        } catch (error) {
+            throw new Error(`Teams notification failed: ${error.message}`);
+        }
     }
-}
 
-// 準備 Teams 訊息
-function prepareTeamsMessage(bounceRateData, status) {
-    const { time, bounceRate } = bounceRateData;
-    const bounceRatePercentage = bounceRate * 100;
+    createTeamsMessage(bounceRateData, status) {
+        const { time, bounceRate } = bounceRateData;
+        const bounceRatePercentage = bounceRate * 100;
 
-    return {
-        body: {
-            type: "message",
-            attachments: [
-                {
+        return {
+            body: {
+                type: "message",
+                attachments: [{
                     contentType: "application/vnd.microsoft.card.adaptive",
                     content: {
                         type: "AdaptiveCard",
@@ -111,91 +136,126 @@ function prepareTeamsMessage(bounceRateData, status) {
                             },
                             {
                                 type: "TextBlock",
-                                text: `1. Email Bounce Rate: ${bounceRatePercentage.toFixed(3)}%，${getStatusDescription(status)}`,
+                                text: `1. Email Bounce Rate: ${bounceRatePercentage.toFixed(3)}%，${this.getStatusDescription(status)}`,
                                 wrap: true
                             }
                         ]
                     }
-                }
-            ]
-        }
-    };
-}
-
-// 發送數據到 Team Workflow App
-async function postToAzure(teamsMessage) {
-    try {
-        const response = await axios.post(AZURE_WEBHOOK_URL, teamsMessage);
-        if (response.status === 202) {
-            console.log('Successfully posted to Team Workflow App');
-        }
-        return response;
-    } catch (error) {
-        console.error('Error posting to Team Workflow App:', error);
-        throw error;
-    }
-}
-
-// 主要執行函數
-async function monitorAndReport() {
-    try {
-        const bounceRateData = await getBounceRateData({
-            region: 'us-west-2',
-        });
-
-        if (bounceRateData.length > 0) {
-            const latestData = bounceRateData[0];
-            console.log(bounceRateData[0]);
-
-            // test rate
-            // const latestData = { time: '2024-11-14 09:48:00', bounceRate: 0.04018144704051851926 } ;
-            const status = getStatus(latestData.bounceRate * 100);
-
-            const teamsMessage = prepareTeamsMessage(latestData, status);
-            await postToAzure(teamsMessage);
-        } else {
-            console.log('BounceRate Data === [], it may be that no data was retrieved or the BounceRate is 0%');
-        }
-    } catch (error) {
-        console.error('Error in monitoring and reporting:', error);
-
-        // 發送錯誤訊息到 Teams
-        const errorMessage = {
-            body: {
-                type: "message",
-                attachments: [
-                    {
-                        contentType: "application/vnd.microsoft.card.adaptive",
-                        content: {
-                            type: "AdaptiveCard",
-                            version: "1.2",
-                            "$schema": "https://adaptivecards.io/schemas/adaptive-card.json",
-                            body: [
-                                {
-                                    type: "TextBlock",
-                                    text: "AWS SES Bounce Rate 監控錯誤",
-                                    weight: "bolder",
-                                    size: "large"
-                                },
-                                {
-                                    type: "TextBlock",
-                                    text: `錯誤信息: ${error.message}`,
-                                    wrap: true
-                                }
-                            ]
-                        }
-                    }
-                ]
+                }]
             }
         };
+    }
 
-        try {
-            await postToAzure(errorMessage);
-        } catch (postError) {
-            console.error('Error posting error message to Teams:', postError);
+    createErrorMessage(error) {
+        return {
+            body: {
+                type: "message",
+                attachments: [{
+                    contentType: "application/vnd.microsoft.card.adaptive",
+                    content: {
+                        type: "AdaptiveCard",
+                        version: "1.2",
+                        "$schema": "https://adaptivecards.io/schemas/adaptive-card.json",
+                        body: [
+                            {
+                                type: "TextBlock",
+                                text: "AWS SES Bounce Rate 監控錯誤",
+                                weight: "bolder",
+                                size: "large"
+                            },
+                            {
+                                type: "TextBlock",
+                                text: `錯誤信息: ${error.message}`,
+                                wrap: true
+                            }
+                        ]
+                    }
+                }]
+            }
+        };
+    }
+
+    getStatusDescription(status) {
+        const descriptions = {
+            [StatusTypes.NORMAL]: '在允許範圍3%以內，狀態為正常',
+            [StatusTypes.CAUTION]: '在注意範圍3%~5%，狀態為注意',
+            [StatusTypes.ALERT]: '在異常範圍5%以上，狀態為異常',
+            [StatusTypes.DANGER]: '在危險範圍超過10%以上，狀態為危險'
+        };
+        return descriptions[status] || '狀態未知';
+    }
+}
+
+// ======================
+// Bounce Rate Service
+// ======================
+class BounceRateService {
+    static getStatus(bounceRate) {
+        const percentageRate = bounceRate * 100;
+        const { normal, caution, danger } = CONFIG.thresholds.bounceRate;
+
+        if (percentageRate < normal * 100) {
+            return StatusTypes.NORMAL;
+        } else if (percentageRate >= normal * 100 && percentageRate < caution * 100) {
+            return StatusTypes.CAUTION;
+        } else if (percentageRate >= caution * 100 && percentageRate < danger * 100) {
+            return StatusTypes.ALERT;
+        } else {
+            return StatusTypes.DANGER;
         }
     }
 }
 
-// 執行監控
-monitorAndReport();
+// ======================
+// Main SES Monitor
+// ======================
+class SESMonitor {
+    constructor() {
+        this.cloudWatchService = new CloudWatchService();
+        this.notificationService = new NotificationService();
+    }
+
+    async monitorAndReport() {
+        try {
+            const endTime = new Date();
+            const startTime = new Date(
+                endTime - CONFIG.monitoring.defaultLookbackMinutes * 60 * 1000
+            );
+
+            const bounceRateData = await this.cloudWatchService.getBounceRateData(
+                startTime,
+                endTime
+            );
+
+            if (bounceRateData.length > 0) {
+                await this.processAndNotify(bounceRateData[0]);
+            } else {
+                console.log('No bounce rate data available');
+            }
+        } catch (error) {
+            await this.handleError(error);
+        }
+    }
+
+    async processAndNotify(latestData) {
+        const status = BounceRateService.getStatus(latestData.bounceRate);
+        const message = this.notificationService.createTeamsMessage(latestData, status);
+        await this.notificationService.sendNotification(message);
+    }
+
+    async handleError(error) {
+        console.error('Monitor error:', error);
+        const errorMessage = this.notificationService.createErrorMessage(error);
+        try {
+            await this.notificationService.sendNotification(errorMessage);
+        } catch (notificationError) {
+            console.error('Error notification failed:', notificationError);
+        }
+    }
+}
+
+// ======================
+// Run the monitor
+// ======================
+const monitor = new SESMonitor();
+monitor.monitorAndReport();
