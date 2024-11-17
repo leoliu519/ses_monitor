@@ -45,12 +45,12 @@ export class SESMonitor {
 
     /**
      * 處理數據並發送通知
-     * @param {Object} latestData - 最新的 BounceRate 數據
+     * @param {Object} currentData - 最新的 BounceRate 數據
      * @returns {Promise<void>}
      */
-    async processAndNotify(latestData) {
-        const status = BounceRateService.getStatus(latestData.bounceRate);
-        const message = this.notificationService.createTeamsMessage(latestData, status);
+    async processAndNotify(currentData) {
+        const status = BounceRateService.getStatus(currentData.bounceRate);
+        const message = this.notificationService.createTeamsMessage(currentData, status);
         await this.notificationService.sendNotification(message);
     }
 
