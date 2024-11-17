@@ -5,7 +5,7 @@ import axios from 'axios';
 // ======================
 // Configuration
 // ======================
-const CONFIG = {
+const config = {
     aws: {
         region: 'us-west-2',
         cloudwatch: {
@@ -43,7 +43,7 @@ const StatusTypes = {
 // CloudWatch Service
 // ======================
 class CloudWatchService {
-    constructor(region = CONFIG.aws.region) {
+    constructor(region = config.aws.region) {
         this.client = new CloudWatchClient({ region });
     }
 
@@ -53,10 +53,10 @@ class CloudWatchService {
                 Id: 'bounceRate',
                 MetricStat: {
                     Metric: {
-                        Namespace: CONFIG.aws.cloudwatch.namespace,
-                        MetricName: CONFIG.aws.cloudwatch.metricName,
+                        Namespace: config.aws.cloudwatch.namespace,
+                        MetricName: config.aws.cloudwatch.metricName,
                     },
-                    Period: CONFIG.aws.cloudwatch.period,
+                    Period: config.aws.cloudwatch.period,
                     Stat: 'Average',
                 },
                 ReturnData: true,
@@ -93,7 +93,7 @@ class CloudWatchService {
 // Notification Service
 // ======================
 class NotificationService {
-    constructor(webhookUrl = CONFIG.webhook.azure) {
+    constructor(webhookUrl = config.webhook.azure) {
         this.webhookUrl = webhookUrl;
     }
 
@@ -192,7 +192,7 @@ class NotificationService {
 class BounceRateService {
     static getStatus(bounceRate) {
         const percentageRate = bounceRate * 100;
-        const { normal, caution, danger } = CONFIG.thresholds.bounceRate;
+        const { normal, caution, danger } = config.thresholds.bounceRate;
 
         if (percentageRate < normal * 100) {
             return StatusTypes.NORMAL;
@@ -219,7 +219,7 @@ class SESMonitor {
         try {
             const endTime = new Date();
             const startTime = new Date(
-                endTime - CONFIG.monitoring.defaultLookbackMinutes * 60 * 1000
+                endTime - config.monitoring.defaultLookbackMinutes * 60 * 1000
             );
 
             const bounceRateData = await this.cloudWatchService.getBounceRateData(
