@@ -17,7 +17,7 @@ export const config = {
         cloudwatch: {
             namespace: 'AWS/SES',
             metricName: 'Reputation.BounceRate',
-            period: 3600,
+            period: 3600, // 1hr
         }
     },
     thresholds: {
@@ -28,7 +28,7 @@ export const config = {
         }
     },
     monitoring: {
-        defaultLookbackMinutes: 720,
+        defaultLookbackMinutes: 120,
     },
     webhook: {
         teams: 'https://prod-142.westus.logic.azure.com:443/workflows/5db304db595c4e03bf5346c307b3a6c3/triggers/manual/paths/invoke?api-version=2016-06-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=EK1v1dHLzx9AEcjRcJJptjAEqkTEdt0rVYto65OHhFY'
