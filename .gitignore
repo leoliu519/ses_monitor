@@ -1,3 +1,6 @@
 
 # 忽略 node_modules 目錄
 node_modules/
+
+# 忽略 測試檔案
+test*.js
